@@ -51,6 +51,7 @@ export default function App() {
   const fabricCanvasRef = useRef(null);
   const replaceInputRef = useRef(null);
   const layerInputRef = useRef(null);
+  const browserRemoverRef = useRef(null);
 
   const toolModeRef = useRef("select");
   const historyRef = useRef([]);
@@ -78,9 +79,8 @@ export default function App() {
   const [textValue, setTextValue] = useState("Type here");
   const [textSize, setTextSize] = useState(42);
   const [downloadFormat, setDownloadFormat] = useState("png");
-  const [removeBgEndpoint, setRemoveBgEndpoint] = useState(
-    "http://localhost:8000/remove-background"
-  );
+  const [removeBgEndpoint, setRemoveBgEndpoint] = useState("");
+  const [isRemovingBg, setIsRemovingBg] = useState(false);
   const [filterValues, setFilterValues] = useState({
     brightness: 0,
     contrast: 0,
@@ -791,9 +791,66 @@ export default function App() {
     setStatus(`Downloaded ${downloadFormat.toUpperCase()} image.`);
   }
 
+  async function getBrowserRemover() {
+    if (browserRemoverRef.current) {
+      return browserRemoverRef.current;
+    }
+    const module = await import("@imgly/background-removal");
+    const removeFn = module.default || module.removeBackground;
+    if (typeof removeFn !== "function") {
+      throw new Error("Browser background removal module is unavailable.");
+    }
+    browserRemoverRef.current = removeFn;
+    return browserRemoverRef.current;
+  }
+
+  async function removeBackgroundInBrowser() {
+    const canvas = fabricCanvasRef.current;
+    if (!canvas || isRemovingBg) {
+      return;
+    }
+
+    try {
+      setIsRemovingBg(true);
+      setStatus("Preparing image for browser background removal...");
+      const sourceDataUrl = canvas.toDataURL({
+        format: "png",
+        multiplier: 1,
+        enableRetinaScaling: false
+      });
+      const sourceBlob = dataUrlToBlob(sourceDataUrl);
+      const removeBackground = await getBrowserRemover();
+      setStatus(
+        "Removing background in-browser. First run may download model files."
+      );
+      const resultBlob = await removeBackground(sourceBlob, {
+        device: "cpu",
+        model: "isnet_quint8",
+        output: {
+          format: "image/png",
+          type: "foreground",
+          quality: 1
+        }
+      });
+      const resultFile = new File([resultBlob], "removed-background.png", {
+        type: resultBlob.type || "image/png"
+      });
+      await loadImageFile(resultFile, true);
+      setStatus("Background removed in-browser.");
+    } catch (error) {
+      setStatus(
+        error instanceof Error
+          ? `Browser remove failed: ${error.message}`
+          : "Browser background removal failed."
+      );
+    } finally {
+      setIsRemovingBg(false);
+    }
+  }
+
   async function removeBackgroundViaApi() {
     const canvas = fabricCanvasRef.current;
-    if (!canvas) {
+    if (!canvas || isRemovingBg) {
       return;
     }
 
@@ -803,6 +860,7 @@ export default function App() {
     }
 
     try {
+      setIsRemovingBg(true);
       setStatus("Sending image to background removal API...");
       const sourceDataUrl = canvas.toDataURL({
         format: "png",
@@ -818,8 +876,34 @@ export default function App() {
         body: form
       });
       if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
+        let errorDetail = "";
+        const responseType = response.headers.get("content-type") || "";
+        if (responseType.includes("application/json")) {
+          try {
+            const body = await response.json();
+            errorDetail = body.detail ? ` - ${body.detail}` : "";
+          } catch {
+            errorDetail = "";
+          }
+        } else {
+          try {
+            const bodyText = await response.text();
+            errorDetail = bodyText ? ` - ${bodyText.slice(0, 120)}` : "";
+          } catch {
+            errorDetail = "";
+          }
+        }
+        throw new Error(`API error ${response.status}${errorDetail}`);
       }
+
+      const responseMime = response.headers.get("content-type") || "";
+      if (!responseMime.startsWith("image/")) {
+        const preview = await response.text();
+        throw new Error(
+          `API did not return an image. Response: ${preview.slice(0, 120)}`
+        );
+      }
+
       const resultBlob = await response.blob();
       const resultFile = new File([resultBlob], "removed-background.png", {
         type: resultBlob.type || "image/png"
@@ -832,6 +916,8 @@ export default function App() {
           ? error.message
           : "Background removal request failed."
       );
+    } finally {
+      setIsRemovingBg(false);
     }
   }
 
@@ -1361,9 +1447,24 @@ export default function App() {
             <button onClick={resetFilters}>Reset Sliders</button>
           </div>
 
-          <h3>Background API</h3>
+          <h3>Background Removal</h3>
+          <div className="inline-actions">
+            <button
+              className="primary"
+              onClick={removeBackgroundInBrowser}
+              disabled={isRemovingBg}
+            >
+              {isRemovingBg ? "Removing..." : "Remove BG (Browser)"}
+            </button>
+            <button onClick={removeBackgroundViaApi} disabled={isRemovingBg}>
+              Remove BG via API
+            </button>
+          </div>
+          <p className="hint">
+            Browser mode works on GitHub Pages and phones. API mode is optional.
+          </p>
           <label>
-            Endpoint URL
+            API Endpoint URL (optional)
             <input
               type="text"
               value={removeBgEndpoint}
@@ -1371,7 +1472,6 @@ export default function App() {
               placeholder="http://localhost:8000/remove-background"
             />
           </label>
-          <button onClick={removeBackgroundViaApi}>Remove BG via API</button>
 
           <h3>Export</h3>
           <label>
