@@ -29,6 +29,18 @@ npm run dev
 
 Then open the local Vite URL shown in the terminal (usually `http://localhost:5173`).
 
+## GitHub Pages
+
+This repo includes a workflow at `.github/workflows/deploy-pages.yml` that deploys `frontend-react/dist` on pushes to `main`.
+
+1. Push your latest commit to `main`.
+2. In GitHub repo settings, open **Pages**.
+3. Set **Source** to **GitHub Actions**.
+4. Wait for the **Deploy Frontend To GitHub Pages** workflow to finish.
+
+Your app URL should be:
+`https://isharkii.github.io/bg-remover/`
+
 ## Notes
 
 - The editor runs fully in-browser on an HTML canvas.
