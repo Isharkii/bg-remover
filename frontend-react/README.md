@@ -15,7 +15,7 @@ This frontend adds a full photo editing UI to your background remover project.
 - Rectangle crop
 - Polygon pen crop
 - Basic image filters (brightness, contrast, saturation, blur)
-- In-browser background removal (works on GitHub Pages + phone browser)
+- In-browser background removal HQ (API-like edge refinement; works on GitHub Pages + phone browser)
 - Optional "Remove BG via API" (POST image file to your backend endpoint)
 - Undo / Redo history
 - Download as PNG or JPEG
@@ -56,11 +56,12 @@ This repo includes a workflow at `.github/workflows/deploy-pages.yml` that deplo
 Your app URL should be:
 `https://isharkii.github.io/bg-remover/`
 
-When opened from that URL (including phone browser), use `Remove BG (Browser)` for fully online usage without localhost.
+When opened from that URL (including phone browser), use `Remove BG (Browser HQ)` for fully online usage without localhost.
 
 ## Notes
 
 - The editor runs fully in-browser on an HTML canvas.
 - PNG export preserves transparency for erased/cropped regions.
-- `Remove BG (Browser)` works without any backend and is suitable for GitHub Pages.
+- `Remove BG (Browser HQ)` works without any backend and is suitable for GitHub Pages.
+- Browser HQ mode is slower on first run because model files are downloaded and cached.
 - For `Remove BG via API`, use a reachable endpoint (public HTTPS endpoint for hosted pages).

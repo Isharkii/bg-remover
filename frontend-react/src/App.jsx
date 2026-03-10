@@ -46,6 +46,199 @@ function dataUrlToBlob(dataUrl) {
   return new Blob([bytes], { type: mime });
 }
 
+async function decodeImageFromSource(source) {
+  const url = typeof source === "string" ? source : URL.createObjectURL(source);
+  try {
+    const image = await createHtmlImage(url);
+    return image;
+  } finally {
+    if (typeof source !== "string") {
+      URL.revokeObjectURL(url);
+    }
+  }
+}
+
+function readImageDataFromImage(image) {
+  const width = image.naturalWidth || image.width || 1;
+  const height = image.naturalHeight || image.height || 1;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    throw new Error("Canvas context is unavailable.");
+  }
+  ctx.drawImage(image, 0, 0);
+  const imageData = ctx.getImageData(0, 0, width, height);
+  return imageData;
+}
+
+async function getImageDataFromSource(source) {
+  const image = await decodeImageFromSource(source);
+  return readImageDataFromImage(image);
+}
+
+function clampCoord(value, max) {
+  if (value < 0) {
+    return 0;
+  }
+  if (value > max) {
+    return max;
+  }
+  return value;
+}
+
+function erodeBinaryMask(mask, width, height) {
+  const out = new Uint8Array(mask.length);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const index = y * width + x;
+      if (x === 0 || y === 0 || x === width - 1 || y === height - 1) {
+        out[index] = 0;
+        continue;
+      }
+
+      let keep = 255;
+      for (let ky = -1; ky <= 1 && keep; ky += 1) {
+        for (let kx = -1; kx <= 1; kx += 1) {
+          const neighbor = (y + ky) * width + (x + kx);
+          if (mask[neighbor] === 0) {
+            keep = 0;
+            break;
+          }
+        }
+      }
+      out[index] = keep;
+    }
+  }
+  return out;
+}
+
+function dilateBinaryMask(mask, width, height) {
+  const out = new Uint8Array(mask.length);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const index = y * width + x;
+      let value = 0;
+      for (let ky = -1; ky <= 1 && !value; ky += 1) {
+        for (let kx = -1; kx <= 1; kx += 1) {
+          const nx = x + kx;
+          const ny = y + ky;
+          if (nx < 0 || ny < 0 || nx >= width || ny >= height) {
+            continue;
+          }
+          const neighbor = ny * width + nx;
+          if (mask[neighbor] > 0) {
+            value = 255;
+            break;
+          }
+        }
+      }
+      out[index] = value;
+    }
+  }
+  return out;
+}
+
+function blurMask3x3(mask, width, height) {
+  const out = new Uint8Array(mask.length);
+  const kernel = [
+    [1, 2, 1],
+    [2, 4, 2],
+    [1, 2, 1]
+  ];
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      let sum = 0;
+      for (let ky = -1; ky <= 1; ky += 1) {
+        for (let kx = -1; kx <= 1; kx += 1) {
+          const nx = clampCoord(x + kx, width - 1);
+          const ny = clampCoord(y + ky, height - 1);
+          const index = ny * width + nx;
+          sum += mask[index] * kernel[ky + 1][kx + 1];
+        }
+      }
+      out[y * width + x] = Math.round(sum / 16);
+    }
+  }
+  return out;
+}
+
+function refineAlphaMask(alphaMask, width, height) {
+  const hardMask = new Uint8Array(alphaMask.length);
+  for (let i = 0; i < alphaMask.length; i += 1) {
+    hardMask[i] = alphaMask[i] >= 128 ? 255 : 0;
+  }
+
+  const eroded = erodeBinaryMask(hardMask, width, height);
+  const blurred = blurMask3x3(eroded, width, height);
+  const dilated = dilateBinaryMask(eroded, width, height);
+
+  const refined = new Uint8Array(eroded);
+  for (let i = 0; i < refined.length; i += 1) {
+    const isEdge = dilated[i] > eroded[i];
+    if (isEdge) {
+      refined[i] = blurred[i];
+    }
+  }
+
+  return refined;
+}
+
+function imageDataToPngBlob(imageData) {
+  const canvas = document.createElement("canvas");
+  canvas.width = imageData.width;
+  canvas.height = imageData.height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    throw new Error("Canvas context is unavailable.");
+  }
+  ctx.putImageData(imageData, 0, 0);
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        reject(new Error("Unable to encode processed image."));
+        return;
+      }
+      resolve(blob);
+    }, "image/png");
+  });
+}
+
+async function refineBrowserRemovalWithApiLikeMask(sourceBlob, removedBlob) {
+  const sourceData = await getImageDataFromSource(sourceBlob);
+  const removedData = await getImageDataFromSource(removedBlob);
+
+  if (
+    sourceData.width !== removedData.width ||
+    sourceData.height !== removedData.height
+  ) {
+    throw new Error("Source and removed image size mismatch.");
+  }
+
+  const width = sourceData.width;
+  const height = sourceData.height;
+  const sourcePixels = sourceData.data;
+  const removedPixels = removedData.data;
+
+  const alphaMask = new Uint8Array(width * height);
+  for (let i = 0, px = 0; i < alphaMask.length; i += 1, px += 4) {
+    alphaMask[i] = removedPixels[px + 3];
+  }
+  const refinedAlpha = refineAlphaMask(alphaMask, width, height);
+
+  const out = new Uint8ClampedArray(sourcePixels.length);
+  for (let i = 0, px = 0; i < refinedAlpha.length; i += 1, px += 4) {
+    out[px] = sourcePixels[px];
+    out[px + 1] = sourcePixels[px + 1];
+    out[px + 2] = sourcePixels[px + 2];
+    out[px + 3] = refinedAlpha[i];
+  }
+
+  const outputImageData = new ImageData(out, width, height);
+  return imageDataToPngBlob(outputImageData);
+}
+
 export default function App() {
   const canvasNodeRef = useRef(null);
   const fabricCanvasRef = useRef(null);
@@ -823,20 +1016,26 @@ export default function App() {
       setStatus(
         "Removing background in-browser. First run may download model files."
       );
+      const preferredDevice = navigator.gpu ? "gpu" : "cpu";
       const resultBlob = await removeBackground(sourceBlob, {
-        device: "cpu",
-        model: "isnet_quint8",
+        device: preferredDevice,
+        model: "isnet_fp16",
         output: {
           format: "image/png",
           type: "foreground",
           quality: 1
         }
       });
-      const resultFile = new File([resultBlob], "removed-background.png", {
-        type: resultBlob.type || "image/png"
+      setStatus("Refining edges for API-like quality...");
+      const refinedBlob = await refineBrowserRemovalWithApiLikeMask(
+        sourceBlob,
+        resultBlob
+      );
+      const resultFile = new File([refinedBlob], "removed-background.png", {
+        type: refinedBlob.type || "image/png"
       });
       await loadImageFile(resultFile, true);
-      setStatus("Background removed in-browser.");
+      setStatus("Background removed in-browser (high quality).");
     } catch (error) {
       setStatus(
         error instanceof Error
@@ -1454,14 +1653,15 @@ export default function App() {
               onClick={removeBackgroundInBrowser}
               disabled={isRemovingBg}
             >
-              {isRemovingBg ? "Removing..." : "Remove BG (Browser)"}
+              {isRemovingBg ? "Removing..." : "Remove BG (Browser HQ)"}
             </button>
             <button onClick={removeBackgroundViaApi} disabled={isRemovingBg}>
               Remove BG via API
             </button>
           </div>
           <p className="hint">
-            Browser mode works on GitHub Pages and phones. API mode is optional.
+            Browser HQ mode works on GitHub Pages and phones. It is slower but
+            gives cleaner edges.
           </p>
           <label>
             API Endpoint URL (optional)

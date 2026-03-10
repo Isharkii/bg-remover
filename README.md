@@ -8,10 +8,10 @@ This repo contains:
 
 The frontend supports two background-removal modes:
 
-- Browser mode: no backend required (works on GitHub Pages and phone browsers)
+- Browser HQ mode: no backend required (works on GitHub Pages and phone browsers)
 - API mode: uses `api_server.py` or another compatible endpoint
 
-If you are using `https://isharkii.github.io/bg-remover/`, use browser mode.
+If you are using `https://isharkii.github.io/bg-remover/`, use browser HQ mode.
 
 ## Run API Server (for "Remove BG via API")
 
