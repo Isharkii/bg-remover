@@ -16,6 +16,7 @@ This frontend adds a full photo editing UI to your background remover project.
 - Polygon pen crop
 - Basic image filters (brightness, contrast, saturation, blur)
 - In-browser background removal HQ (API-like edge refinement; works on GitHub Pages + phone browser)
+- Browser quality profiles: `Detail Preserving` and `Clean Edges`
 - Optional "Remove BG via API" (POST image file to your backend endpoint)
 - Undo / Redo history
 - Download as PNG or JPEG
@@ -64,4 +65,5 @@ When opened from that URL (including phone browser), use `Remove BG (Browser HQ)
 - PNG export preserves transparency for erased/cropped regions.
 - `Remove BG (Browser HQ)` works without any backend and is suitable for GitHub Pages.
 - Browser HQ mode is slower on first run because model files are downloaded and cached.
+- For fine hair/details, keep profile on `Detail Preserving`.
 - For `Remove BG via API`, use a reachable endpoint (public HTTPS endpoint for hosted pages).

@@ -164,7 +164,7 @@ function blurMask3x3(mask, width, height) {
   return out;
 }
 
-function refineAlphaMask(alphaMask, width, height) {
+function refineAlphaMaskAggressive(alphaMask, width, height) {
   const hardMask = new Uint8Array(alphaMask.length);
   for (let i = 0; i < alphaMask.length; i += 1) {
     hardMask[i] = alphaMask[i] >= 128 ? 255 : 0;
@@ -183,6 +183,45 @@ function refineAlphaMask(alphaMask, width, height) {
   }
 
   return refined;
+}
+
+function refineAlphaMaskDetail(alphaMask) {
+  const refined = new Uint8Array(alphaMask.length);
+  for (let i = 0; i < alphaMask.length; i += 1) {
+    const alpha = alphaMask[i];
+    if (alpha <= 6) {
+      refined[i] = 0;
+      continue;
+    }
+    if (alpha >= 250) {
+      refined[i] = 255;
+      continue;
+    }
+    // Light alpha boosting keeps fine hair/translucent edges.
+    refined[i] = Math.round(Math.pow(alpha / 255, 0.9) * 255);
+  }
+  return refined;
+}
+
+function buildAlphaMaskFromMaskPixels(maskPixels, pixelCount) {
+  const alphaMask = new Uint8Array(pixelCount);
+  for (let i = 0, px = 0; i < pixelCount; i += 1, px += 4) {
+    const red = maskPixels[px];
+    const green = maskPixels[px + 1];
+    const blue = maskPixels[px + 2];
+    const alpha = maskPixels[px + 3];
+    const channelMask = Math.max(red, green, blue);
+
+    // For mask output, RGB often stores the matte while alpha stays 255.
+    if (alpha === 255) {
+      alphaMask[i] = channelMask;
+    } else if (alpha > 0 && alpha < 255) {
+      alphaMask[i] = alpha;
+    } else {
+      alphaMask[i] = channelMask;
+    }
+  }
+  return alphaMask;
 }
 
 function imageDataToPngBlob(imageData) {
@@ -205,27 +244,31 @@ function imageDataToPngBlob(imageData) {
   });
 }
 
-async function refineBrowserRemovalWithApiLikeMask(sourceBlob, removedBlob) {
+async function composeOriginalWithMask(
+  sourceBlob,
+  maskBlob,
+  refinementMode = "detail"
+) {
   const sourceData = await getImageDataFromSource(sourceBlob);
-  const removedData = await getImageDataFromSource(removedBlob);
+  const maskData = await getImageDataFromSource(maskBlob);
 
   if (
-    sourceData.width !== removedData.width ||
-    sourceData.height !== removedData.height
+    sourceData.width !== maskData.width ||
+    sourceData.height !== maskData.height
   ) {
-    throw new Error("Source and removed image size mismatch.");
+    throw new Error("Source and mask image size mismatch.");
   }
 
   const width = sourceData.width;
   const height = sourceData.height;
   const sourcePixels = sourceData.data;
-  const removedPixels = removedData.data;
+  const maskPixels = maskData.data;
 
-  const alphaMask = new Uint8Array(width * height);
-  for (let i = 0, px = 0; i < alphaMask.length; i += 1, px += 4) {
-    alphaMask[i] = removedPixels[px + 3];
-  }
-  const refinedAlpha = refineAlphaMask(alphaMask, width, height);
+  const alphaMask = buildAlphaMaskFromMaskPixels(maskPixels, width * height);
+  const refinedAlpha =
+    refinementMode === "aggressive"
+      ? refineAlphaMaskAggressive(alphaMask, width, height)
+      : refineAlphaMaskDetail(alphaMask);
 
   const out = new Uint8ClampedArray(sourcePixels.length);
   for (let i = 0, px = 0; i < refinedAlpha.length; i += 1, px += 4) {
@@ -274,6 +317,7 @@ export default function App() {
   const [downloadFormat, setDownloadFormat] = useState("png");
   const [removeBgEndpoint, setRemoveBgEndpoint] = useState("");
   const [isRemovingBg, setIsRemovingBg] = useState(false);
+  const [browserMaskMode, setBrowserMaskMode] = useState("detail");
   const [filterValues, setFilterValues] = useState({
     brightness: 0,
     contrast: 0,
@@ -1017,25 +1061,45 @@ export default function App() {
         "Removing background in-browser. First run may download model files."
       );
       const preferredDevice = navigator.gpu ? "gpu" : "cpu";
-      const resultBlob = await removeBackground(sourceBlob, {
-        device: preferredDevice,
-        model: "isnet_fp16",
-        output: {
-          format: "image/png",
-          type: "foreground",
-          quality: 1
-        }
-      });
-      setStatus("Refining edges for API-like quality...");
-      const refinedBlob = await refineBrowserRemovalWithApiLikeMask(
+      let maskBlob;
+      try {
+        maskBlob = await removeBackground(sourceBlob, {
+          device: preferredDevice,
+          model: "isnet",
+          output: {
+            format: "image/png",
+            type: "mask",
+            quality: 1
+          }
+        });
+      } catch {
+        // Fallback for low-memory devices.
+        maskBlob = await removeBackground(sourceBlob, {
+          device: preferredDevice,
+          model: "isnet_fp16",
+          output: {
+            format: "image/png",
+            type: "mask",
+            quality: 1
+          }
+        });
+      }
+
+      const modeLabel =
+        browserMaskMode === "detail"
+          ? "detail-preserving mask refinement"
+          : "strong edge-cleanup refinement";
+      setStatus(`Applying ${modeLabel}...`);
+      const refinedBlob = await composeOriginalWithMask(
         sourceBlob,
-        resultBlob
+        maskBlob,
+        browserMaskMode
       );
       const resultFile = new File([refinedBlob], "removed-background.png", {
         type: refinedBlob.type || "image/png"
       });
       await loadImageFile(resultFile, true);
-      setStatus("Background removed in-browser (high quality).");
+      setStatus("Background removed in-browser (quality mode applied).");
     } catch (error) {
       setStatus(
         error instanceof Error
@@ -1660,9 +1724,19 @@ export default function App() {
             </button>
           </div>
           <p className="hint">
-            Browser HQ mode works on GitHub Pages and phones. It is slower but
-            gives cleaner edges.
+            Browser HQ mode works on GitHub Pages and phones. Use Detail mode
+            for hair/fine texture and Clean Edges mode for product shots.
           </p>
+          <label>
+            Browser Quality Profile
+            <select
+              value={browserMaskMode}
+              onChange={(event) => setBrowserMaskMode(event.target.value)}
+            >
+              <option value="detail">Detail Preserving</option>
+              <option value="aggressive">Clean Edges</option>
+            </select>
+          </label>
           <label>
             API Endpoint URL (optional)
             <input
