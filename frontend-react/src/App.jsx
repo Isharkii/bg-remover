@@ -282,6 +282,20 @@ async function composeOriginalWithMask(
   return imageDataToPngBlob(outputImageData);
 }
 
+function ControlPanel({ title, description, defaultOpen = true, children }) {
+  return (
+    <details className="control-panel" open={defaultOpen}>
+      <summary>
+        <div>
+          <h2>{title}</h2>
+          {description ? <p>{description}</p> : null}
+        </div>
+      </summary>
+      <div className="control-content">{children}</div>
+    </details>
+  );
+}
+
 export default function App() {
   const canvasNodeRef = useRef(null);
   const fabricCanvasRef = useRef(null);
@@ -1416,6 +1430,13 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canUndo, canRedo]);
 
+  function updateFilterValue(key, value) {
+    setFilterValues((prev) => ({
+      ...prev,
+      [key]: value
+    }));
+  }
+
   const modeButtons = [
     { id: "select", label: "Select / Move" },
     { id: "draw", label: "Draw Brush" },
@@ -1424,21 +1445,32 @@ export default function App() {
     { id: "penCrop", label: "Pen Crop" }
   ];
 
-  return (
-    <div className="app-shell">
-      <div className="aurora aurora-one" />
-      <div className="aurora aurora-two" />
+  const shapeButtons = [
+    { id: "rect", label: "Rectangle" },
+    { id: "circle", label: "Circle" },
+    { id: "triangle", label: "Triangle" },
+    { id: "line", label: "Line" }
+  ];
 
-      <header className="top-bar card reveal-down">
-        <div>
-          <p className="eyebrow">Background Remover Studio</p>
-          <h1>Photo Forge Editor</h1>
-          <p className="subhead">
-            Upload, crop, rotate, transform, draw, paste, and export photos.
+  return (
+    <div className="editor-shell">
+      <div className="page-glow page-glow-top" />
+      <div className="page-glow page-glow-bottom" />
+
+      <header className="command-bar enter-top">
+        <div className="brand-copy-block">
+          <p className="brand-kicker">Background Remover Studio</p>
+          <h1>Minimal Photo Editor</h1>
+          <p>
+            Upload, crop, rotate, draw, remove backgrounds, and export with a
+            cleaner, more focused workspace.
           </p>
         </div>
-        <div className="top-actions">
-          <button onClick={() => replaceInputRef.current?.click()}>Upload Photo</button>
+
+        <div className="command-actions">
+          <button className="btn-accent" onClick={() => replaceInputRef.current?.click()}>
+            Upload Photo
+          </button>
           <button onClick={() => layerInputRef.current?.click()}>Add Layer</button>
           <button onClick={pasteFromClipboardButton}>Paste</button>
           <button onClick={undo} disabled={!canUndo}>
@@ -1447,323 +1479,341 @@ export default function App() {
           <button onClick={redo} disabled={!canRedo}>
             Redo
           </button>
-          <button className="primary" onClick={downloadImage}>
-            Download
+          <button className="btn-accent" onClick={downloadImage}>
+            Quick Download
           </button>
-          <input
-            ref={replaceInputRef}
-            type="file"
-            accept="image/*"
-            onChange={handleReplaceInput}
-            hidden
-          />
-          <input
-            ref={layerInputRef}
-            type="file"
-            accept="image/*"
-            onChange={handleLayerInput}
-            hidden
-          />
         </div>
+
+        <input
+          ref={replaceInputRef}
+          type="file"
+          accept="image/*"
+          onChange={handleReplaceInput}
+          hidden
+        />
+        <input
+          ref={layerInputRef}
+          type="file"
+          accept="image/*"
+          onChange={handleLayerInput}
+          hidden
+        />
       </header>
 
-      <div className="workspace">
-        <aside className="card panel reveal-up">
-          <h2>Tools</h2>
-          <div className="button-grid">
-            {modeButtons.map((button) => (
-              <button
-                key={button.id}
-                className={toolMode === button.id ? "active" : ""}
-                onClick={() => switchTool(button.id)}
-              >
-                {button.label}
-              </button>
-            ))}
-          </div>
-
-          {(toolMode === "draw" || toolMode === "erase") ? (
-            <>
-              <label>
-                Brush Size: {brushSize}px
-                <input
-                  type="range"
-                  min="1"
-                  max="120"
-                  value={brushSize}
-                  onChange={(event) => setBrushSize(Number(event.target.value))}
-                />
-              </label>
-              {toolMode === "draw" ? (
-                <label>
-                  Brush Color
-                  <input
-                    type="color"
-                    value={brushColor}
-                    onChange={(event) => setBrushColor(event.target.value)}
-                  />
-                </label>
-              ) : null}
-            </>
-          ) : null}
-
-          {toolMode === "rectCrop" ? (
-            <div className="inline-actions">
-              <button className="primary" onClick={applyRectCrop}>
-                Apply Crop
-              </button>
-              <button
-                onClick={() => {
-                  clearRectDraft();
-                  setStatus("Rectangle crop canceled.");
-                }}
-              >
-                Cancel
-              </button>
-            </div>
-          ) : null}
-
-          {toolMode === "penCrop" ? (
-            <>
-              <p className="hint">
-                Click points around the subject. Press Apply Pen Crop when done.
-              </p>
-              <div className="inline-actions">
-                <button className="primary" onClick={applyPenCrop}>
-                  Apply Pen Crop
-                </button>
-                <button
-                  onClick={() => {
-                    penPointsRef.current = [];
-                    clearPenGuide();
-                    setStatus("Pen crop points cleared.");
-                  }}
-                >
-                  Reset Points
-                </button>
-              </div>
-            </>
-          ) : null}
-
-          <h3>Draw Shapes</h3>
-          <label>
-            Shape Color
-            <input
-              type="color"
-              value={shapeColor}
-              onChange={(event) => setShapeColor(event.target.value)}
-            />
-          </label>
-          <div className="button-grid">
-            <button onClick={() => addShape("rect")}>Rectangle</button>
-            <button onClick={() => addShape("circle")}>Circle</button>
-            <button onClick={() => addShape("triangle")}>Triangle</button>
-            <button onClick={() => addShape("line")}>Line</button>
-          </div>
-
-          <h3>Text</h3>
-          <label>
-            Text Value
-            <input
-              type="text"
-              value={textValue}
-              onChange={(event) => setTextValue(event.target.value)}
-            />
-          </label>
-          <label>
-            Text Size: {textSize}px
-            <input
-              type="range"
-              min="10"
-              max="160"
-              value={textSize}
-              onChange={(event) => setTextSize(Number(event.target.value))}
-            />
-          </label>
-          <label>
-            Text Color
-            <input
-              type="color"
-              value={textColor}
-              onChange={(event) => setTextColor(event.target.value)}
-            />
-          </label>
-          <button onClick={addText}>Add Text</button>
-        </aside>
-
-        <main className="stage-column reveal-up">
+      <div className="editor-layout">
+        <main className="stage-panel enter-main">
           <div
-            className={`canvas-host card ${dropActive ? "drop-active" : ""}`}
+            className={`canvas-frame ${dropActive ? "is-drop-active" : ""}`}
             onDragOver={onDragOver}
             onDrop={onDrop}
             onDragLeave={onDragLeave}
           >
             <canvas ref={canvasNodeRef} />
+            <p className="drop-hint">Drop an image here to replace the canvas.</p>
           </div>
-          <div className="status-bar card">
-            <span>{status}</span>
-            <span>
-              Selection: <strong>{hasSelection ? selectionType : "none"}</strong>
-            </span>
+
+          <div className="stage-meta">
+            <p className="status-line">{status}</p>
+            <p className="selection-line">
+              Selection <strong>{hasSelection ? selectionType : "none"}</strong>
+            </p>
           </div>
-          <p className="hint keyboard">
+
+          <p className="shortcut-line">
             Shortcuts: Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z redo, Delete removes
-            selection, Esc exits crop modes, Ctrl/Cmd+V pastes image from
-            clipboard.
+            selection, Esc exits crop tools, Ctrl/Cmd+V pastes clipboard image.
           </p>
         </main>
 
-        <aside className="card panel reveal-up delay">
-          <h2>Transform</h2>
-          <div className="inline-actions">
-            <button onClick={() => rotateSelection(-90)}>Rotate -90 deg</button>
-            <button onClick={() => rotateSelection(90)}>Rotate +90 deg</button>
-          </div>
-          <label>
-            Scale Selection
-            <input
-              type="range"
-              min="10"
-              max="350"
-              defaultValue="100"
-              onChange={(event) => scaleSelection(Number(event.target.value))}
-            />
-          </label>
-          <div className="inline-actions">
-            <button onClick={() => flipSelection("x")}>Flip X</button>
-            <button onClick={() => flipSelection("y")}>Flip Y</button>
-          </div>
-          <div className="inline-actions">
-            <button onClick={bringSelectionForward}>Bring Forward</button>
-            <button onClick={sendSelectionBackward}>Send Back</button>
-          </div>
-          <div className="inline-actions">
-            <button onClick={cloneSelection}>Duplicate</button>
-            <button onClick={deleteSelection}>Delete</button>
-          </div>
+        <aside className="control-dock enter-side">
+          <ControlPanel
+            title="Tools"
+            description="Select, draw, erase, or crop with precision."
+          >
+            <div className="tool-grid">
+              {modeButtons.map((button) => (
+                <button
+                  key={button.id}
+                  className={toolMode === button.id ? "is-active" : ""}
+                  onClick={() => switchTool(button.id)}
+                >
+                  {button.label}
+                </button>
+              ))}
+            </div>
 
-          <h3>Image Filters</h3>
-          <label>
-            Brightness: {filterValues.brightness}
-            <input
-              type="range"
-              min="-100"
-              max="100"
-              value={filterValues.brightness}
-              onChange={(event) =>
-                setFilterValues((prev) => ({
-                  ...prev,
-                  brightness: Number(event.target.value)
-                }))
-              }
-            />
-          </label>
-          <label>
-            Contrast: {filterValues.contrast}
-            <input
-              type="range"
-              min="-100"
-              max="100"
-              value={filterValues.contrast}
-              onChange={(event) =>
-                setFilterValues((prev) => ({
-                  ...prev,
-                  contrast: Number(event.target.value)
-                }))
-              }
-            />
-          </label>
-          <label>
-            Saturation: {filterValues.saturation}
-            <input
-              type="range"
-              min="-100"
-              max="100"
-              value={filterValues.saturation}
-              onChange={(event) =>
-                setFilterValues((prev) => ({
-                  ...prev,
-                  saturation: Number(event.target.value)
-                }))
-              }
-            />
-          </label>
-          <label>
-            Blur: {filterValues.blur}
-            <input
-              type="range"
-              min="0"
-              max="100"
-              value={filterValues.blur}
-              onChange={(event) =>
-                setFilterValues((prev) => ({
-                  ...prev,
-                  blur: Number(event.target.value)
-                }))
-              }
-            />
-          </label>
-          <div className="inline-actions">
-            <button className="primary" onClick={applyFilters}>
-              Apply Filters
-            </button>
-            <button onClick={resetFilters}>Reset Sliders</button>
-          </div>
+            {(toolMode === "draw" || toolMode === "erase") ? (
+              <div className="stacked-group">
+                <label>
+                  Brush Size: {brushSize}px
+                  <input
+                    type="range"
+                    min="1"
+                    max="120"
+                    value={brushSize}
+                    onChange={(event) => setBrushSize(Number(event.target.value))}
+                  />
+                </label>
+                {toolMode === "draw" ? (
+                  <label>
+                    Brush Color
+                    <input
+                      type="color"
+                      value={brushColor}
+                      onChange={(event) => setBrushColor(event.target.value)}
+                    />
+                  </label>
+                ) : null}
+              </div>
+            ) : null}
 
-          <h3>Background Removal</h3>
-          <div className="inline-actions">
-            <button
-              className="primary"
-              onClick={removeBackgroundInBrowser}
-              disabled={isRemovingBg}
-            >
-              {isRemovingBg ? "Removing..." : "Remove BG (Browser HQ)"}
-            </button>
-            <button onClick={removeBackgroundViaApi} disabled={isRemovingBg}>
-              Remove BG via API
-            </button>
-          </div>
-          <p className="hint">
-            Browser HQ mode works on GitHub Pages and phones. Use Detail mode
-            for hair/fine texture and Clean Edges mode for product shots.
-          </p>
-          <label>
-            Browser Quality Profile
-            <select
-              value={browserMaskMode}
-              onChange={(event) => setBrowserMaskMode(event.target.value)}
-            >
-              <option value="detail">Detail Preserving</option>
-              <option value="aggressive">Clean Edges</option>
-            </select>
-          </label>
-          <label>
-            API Endpoint URL (optional)
-            <input
-              type="text"
-              value={removeBgEndpoint}
-              onChange={(event) => setRemoveBgEndpoint(event.target.value)}
-              placeholder="http://localhost:8000/remove-background"
-            />
-          </label>
+            {toolMode === "rectCrop" ? (
+              <div className="action-row">
+                <button className="btn-accent" onClick={applyRectCrop}>
+                  Apply Crop
+                </button>
+                <button
+                  onClick={() => {
+                    clearRectDraft();
+                    setStatus("Rectangle crop canceled.");
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : null}
 
-          <h3>Export</h3>
-          <label>
-            File Type
-            <select
-              value={downloadFormat}
-              onChange={(event) => setDownloadFormat(event.target.value)}
-            >
-              <option value="png">PNG (transparent support)</option>
-              <option value="jpeg">JPEG</option>
-            </select>
-          </label>
-          <div className="inline-actions">
-            <button className="primary" onClick={downloadImage}>
-              Download Image
-            </button>
-            <button onClick={clearCanvas}>Clear Canvas</button>
-          </div>
+            {toolMode === "penCrop" ? (
+              <>
+                <p className="assistive-copy">
+                  Click points around your subject, then apply the crop.
+                </p>
+                <div className="action-row">
+                  <button className="btn-accent" onClick={applyPenCrop}>
+                    Apply Pen Crop
+                  </button>
+                  <button
+                    onClick={() => {
+                      penPointsRef.current = [];
+                      clearPenGuide();
+                      setStatus("Pen crop points cleared.");
+                    }}
+                  >
+                    Reset Points
+                  </button>
+                </div>
+              </>
+            ) : null}
+          </ControlPanel>
+
+          <ControlPanel
+            title="Shapes & Text"
+            description="Add annotation layers and labels."
+          >
+            <label>
+              Shape Color
+              <input
+                type="color"
+                value={shapeColor}
+                onChange={(event) => setShapeColor(event.target.value)}
+              />
+            </label>
+            <div className="tool-grid">
+              {shapeButtons.map((shape) => (
+                <button key={shape.id} onClick={() => addShape(shape.id)}>
+                  {shape.label}
+                </button>
+              ))}
+            </div>
+
+            <label>
+              Text Value
+              <input
+                type="text"
+                value={textValue}
+                onChange={(event) => setTextValue(event.target.value)}
+              />
+            </label>
+            <label>
+              Text Size: {textSize}px
+              <input
+                type="range"
+                min="10"
+                max="160"
+                value={textSize}
+                onChange={(event) => setTextSize(Number(event.target.value))}
+              />
+            </label>
+            <label>
+              Text Color
+              <input
+                type="color"
+                value={textColor}
+                onChange={(event) => setTextColor(event.target.value)}
+              />
+            </label>
+            <button onClick={addText}>Add Text</button>
+          </ControlPanel>
+
+          <ControlPanel
+            title="Transform"
+            description="Rotate, resize, flip, reorder, and duplicate layers."
+          >
+            <div className="action-row">
+              <button onClick={() => rotateSelection(-90)}>Rotate -90 deg</button>
+              <button onClick={() => rotateSelection(90)}>Rotate +90 deg</button>
+            </div>
+            <label>
+              Scale Selection
+              <input
+                type="range"
+                min="10"
+                max="350"
+                defaultValue="100"
+                onChange={(event) => scaleSelection(Number(event.target.value))}
+              />
+            </label>
+            <div className="action-row">
+              <button onClick={() => flipSelection("x")}>Flip X</button>
+              <button onClick={() => flipSelection("y")}>Flip Y</button>
+            </div>
+            <div className="action-row">
+              <button onClick={bringSelectionForward}>Bring Forward</button>
+              <button onClick={sendSelectionBackward}>Send Back</button>
+            </div>
+            <div className="action-row">
+              <button onClick={cloneSelection}>Duplicate</button>
+              <button className="btn-danger" onClick={deleteSelection}>
+                Delete
+              </button>
+            </div>
+          </ControlPanel>
+
+          <ControlPanel
+            title="Image Filters"
+            description="Adjust brightness, contrast, saturation, and blur."
+          >
+            <label>
+              Brightness: {filterValues.brightness}
+              <input
+                type="range"
+                min="-100"
+                max="100"
+                value={filterValues.brightness}
+                onChange={(event) =>
+                  updateFilterValue("brightness", Number(event.target.value))
+                }
+              />
+            </label>
+            <label>
+              Contrast: {filterValues.contrast}
+              <input
+                type="range"
+                min="-100"
+                max="100"
+                value={filterValues.contrast}
+                onChange={(event) =>
+                  updateFilterValue("contrast", Number(event.target.value))
+                }
+              />
+            </label>
+            <label>
+              Saturation: {filterValues.saturation}
+              <input
+                type="range"
+                min="-100"
+                max="100"
+                value={filterValues.saturation}
+                onChange={(event) =>
+                  updateFilterValue("saturation", Number(event.target.value))
+                }
+              />
+            </label>
+            <label>
+              Blur: {filterValues.blur}
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={filterValues.blur}
+                onChange={(event) =>
+                  updateFilterValue("blur", Number(event.target.value))
+                }
+              />
+            </label>
+            <div className="action-row">
+              <button className="btn-accent" onClick={applyFilters}>
+                Apply Filters
+              </button>
+              <button onClick={resetFilters}>Reset Sliders</button>
+            </div>
+          </ControlPanel>
+
+          <ControlPanel
+            title="Background Removal"
+            description="Use the browser model or your own API endpoint."
+          >
+            <div className="action-row">
+              <button
+                className="btn-accent"
+                onClick={removeBackgroundInBrowser}
+                disabled={isRemovingBg}
+              >
+                {isRemovingBg ? "Removing..." : "Remove BG (Browser HQ)"}
+              </button>
+              <button onClick={removeBackgroundViaApi} disabled={isRemovingBg}>
+                Remove BG via API
+              </button>
+            </div>
+            <p className="assistive-copy">
+              Use Detail Preserving for hair and fine texture, or Clean Edges
+              for products and hard outlines.
+            </p>
+            <label>
+              Browser Quality Profile
+              <select
+                value={browserMaskMode}
+                onChange={(event) => setBrowserMaskMode(event.target.value)}
+              >
+                <option value="detail">Detail Preserving</option>
+                <option value="aggressive">Clean Edges</option>
+              </select>
+            </label>
+            <label>
+              API Endpoint URL (optional)
+              <input
+                type="text"
+                value={removeBgEndpoint}
+                onChange={(event) => setRemoveBgEndpoint(event.target.value)}
+                placeholder="http://localhost:8000/remove-background"
+              />
+            </label>
+          </ControlPanel>
+
+          <ControlPanel
+            title="Export"
+            description="Choose output format and clear the project."
+            defaultOpen={false}
+          >
+            <label>
+              File Type
+              <select
+                value={downloadFormat}
+                onChange={(event) => setDownloadFormat(event.target.value)}
+              >
+                <option value="png">PNG (transparent support)</option>
+                <option value="jpeg">JPEG</option>
+              </select>
+            </label>
+            <div className="action-row">
+              <button className="btn-accent" onClick={downloadImage}>
+                Download Image
+              </button>
+              <button className="btn-danger" onClick={clearCanvas}>
+                Clear Canvas
+              </button>
+            </div>
+          </ControlPanel>
         </aside>
       </div>
     </div>
